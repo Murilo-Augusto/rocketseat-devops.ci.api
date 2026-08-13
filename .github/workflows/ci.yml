@@ -5,13 +5,20 @@ on:
     branches:
       - main
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build:
     name: "Build and Push"
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node: [22, 24, 26]
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -36,11 +43,78 @@ jobs:
       - name: Run tests
         run: pnpm test
 
-      - name: Generate tag
-        id: generate_tag
-        run: |
-          SHA=$(echo $GITHUB_SHA | head -c7)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+      - name: Docker Login
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build docker image
-        run: docker build -t rocketseat-ci-api:${{ steps.generate_tag.outputs.sha }} .
+      - name: Docker Metadata action
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker images
+        id: push
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+### Formação Devops
+# name: CI
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   build:
+#     name: 'Build and Push'
+#     runs-on: ubuntu-latest
+#     # strategy:
+#     #   # matrix:
+#     #   #   node: [16, 18, 20]
+
+#     steps:
+#     - uses: actions/checkout@v4
+
+#     # - name: Setup node | ${{ matrix.node }}
+#     - name: Setup node
+#       uses: actions/setup-node@v4
+#       with:
+#         # node-version: ${{ matrix.node }}
+#         node-version: 18
+#         cache: 'yarn'
+#     - run: yarn
+#     - run: yarn run test
+
+#     - name: Generate tag
+#       id: generate_tag
+#       run: |
+#         SHA=$(echo $GITHUB_SHA | head -c7)
+#         echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+#     - name: Login into the container registry
+#       uses : docker/login-action@v3
+#       with:
+#         username: ${{ secrets.DOCKERHUB_USERNAME }}
+#         password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+#     - name: Build
+#       run: docker build -t danielrodriguess/rocketseat-ci-api:${{ steps.generate_tag.outputs.sha }} .
+
+#     - name: Push image
+#       run: docker push danielrodriguess/rocketseat-ci-api:${{ steps.generate_tag.outputs.sha }}
